@@ -3,15 +3,43 @@
  *
  * Copyright 2013-2014 Tobii Technology AB. All rights reserved.
  */
-
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
 #define _WINSOCKAPI_ //Prevent includsion of winsock.h in windows.h
 #include <Windows.h>
 #include <stdio.h>
 #include <conio.h>
 #include <assert.h>
 #include "eyex/EyeX.h"
+#include <WinSock2.h>
 
-#include "UDPStreaming.h"
+void UDPStreaming_init(char* ip, int port);
+int UDPStreaming_send(unsigned char* buf, int len);
+
+void UDPStreaming_close(void);
+
+WSADATA wsaData;
+SOCKET sock;
+struct sockaddr_in addr;
+
+void UDPStreaming_init(char* ip, int port) {
+	WSAStartup(MAKEWORD(2, 0), &wsaData);
+
+	sock = socket(AF_INET, SOCK_DGRAM, 0);
+
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	addr.sin_addr.S_un.S_addr = inet_addr(ip);
+}
+
+int UDPStreaming_send(unsigned char* buf, int len) {
+	return sendto(sock, (char *)buf, len, 0, (struct sockaddr *)&addr, sizeof(addr));
+}
+
+void UDPStreaming_close(void) {
+	closesocket(sock);
+	WSACleanup();
+}
 #pragma comment(lib,"ws2_32")
 
 #pragma comment (lib, "Tobii.EyeX.Client.lib")
@@ -102,7 +130,11 @@ void OnGazeDataEvent(TX_HANDLE hGazeDataBehavior)
 {
 	TX_GAZEPOINTDATAEVENTPARAMS eventParams;
 	if (txGetGazePointDataEventParams(hGazeDataBehavior, &eventParams) == TX_RESULT_OK) {
-		printf("Gaze Data: (%.1f, %.1f) timestamp %.0f ms\n", eventParams.X, eventParams.Y, eventParams.Timestamp);
+		
+		char buf[256];
+		sprintf(buf,"%.1f,%.1f,%0.f", eventParams.X, eventParams.Y, eventParams.Timestamp);
+		int s=UDPStreaming_send(buf, 256);
+		printf("Seding %d byte: Gaze Data: (%.1f, %.1f) timestamp %.0f ms\n",s, eventParams.X, eventParams.Y, eventParams.Timestamp);
 	} else {
 		printf("Failed to interpret gaze data event packet.\n");
 	}
@@ -142,7 +174,7 @@ int main(int argc, char* argv[])
 	TX_TICKET hConnectionStateChangedTicket = TX_INVALID_TICKET;
 	TX_TICKET hEventHandlerTicket = TX_INVALID_TICKET;
 	BOOL success;
-
+	UDPStreaming_init("192.168.3.16", 8888);
 	// initialize and enable the context that is our link to the EyeX Engine.
 	success = txInitializeEyeX(TX_EYEXCOMPONENTOVERRIDEFLAG_NONE, NULL, NULL, NULL, NULL) == TX_RESULT_OK;
 	success &= txCreateContext(&hContext, TX_FALSE) == TX_RESULT_OK;
